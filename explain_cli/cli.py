@@ -13,10 +13,19 @@ CONFIG = load_config()
 def check_dependencies():
     """Check if required CLIs are available"""
     current_provider = CONFIG.get('ai_provider')
-    for cmd in ['gh', CONFIG.get('providers').get(current_provider).get('command')[0]]:
-        if not shutil.which(cmd):
-            print_error(f"'{cmd}' CLI not found in PATH")
-            sys.exit(1)
+    
+    # Check AI provider
+    ai_cmd = CONFIG.get('providers').get(current_provider).get('command')[0]
+    if not shutil.which(ai_cmd):
+        print_error(f"'{ai_cmd}' CLI not found in PATH")
+        sys.exit(1)
+    
+    # Check git (always required)
+    if not shutil.which('git'):
+        print_error("'git' CLI not found in PATH")
+        sys.exit(1)
+    
+    # gh is optional - we'll check when needed
     
     try:
         import pyperclip
@@ -42,6 +51,11 @@ def run_command(cmd, shell=False):
 
 def select_pr_interactive():
     """Show PR list and let user select one using a native CLI dropdown"""
+    
+    # Check if gh is available
+    if not shutil.which('gh'):
+        print_error("GitHub CLI (gh) not available - PR selection requires gh CLI")
+        sys.exit(1)
     
     # Get PR list
     pr_list_output = run_command(['gh', 'pr', 'list', '--state', 'all', '--json', 'number,title,author,state'])
@@ -93,6 +107,12 @@ def select_pr_interactive():
 
 def explain_pr(force_select=False):
     """Handle pull request explanation"""
+    
+    # Check if gh is available
+    if not shutil.which('gh'):
+        print_error("GitHub CLI (gh) not available - PR explanation requires gh CLI")
+        sys.exit(1)
+    
     # Check if we're in a PR branch
     current_pr_check = run_command(['gh', 'pr', 'view'])
     
