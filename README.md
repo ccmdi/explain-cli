@@ -1,6 +1,16 @@
-# explain-git
+# explain-cli
 
 Explain Git commits and PRs using Claude Code or Gemini CLI.
+
+## Install
+
+```bash
+# uv
+uv tool install https://github.com/ccmdi/explain-cli.git
+
+# pip
+pip install https://github.com/ccmdi/explain-cli.git
+```
 
 ## Usage
 
