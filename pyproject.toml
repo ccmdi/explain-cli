@@ -3,7 +3,7 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "explain-git"
+name = "explain-cli"
 version = "1.0.0"
 requires-python = ">=3.7"
 dependencies = [
@@ -13,4 +13,4 @@ dependencies = [
 ]
 
 [project.scripts]
-explain = "explain_git.cli:main"
+explain = "explain_cli.cli:main"
