@@ -102,7 +102,61 @@ def select_pr_interactive():
                 return pr_number
                 
     except KeyboardInterrupt:
-        # print("\nSelection cancelled", file=sys.stderr)
+        print_error("\nSelection cancelled")
+        sys.exit(1)
+
+def select_commit_interactive():
+    """Show recent commits and let user select one"""
+    
+    # Get recent commits with nice formatting
+    commit_log = run_command(['git', 'log', '--oneline', '--decorate', '--color=never', '-20'])
+    if not commit_log:
+        print_error("No commits found in repository")
+        sys.exit(1)
+    
+    # Parse commits
+    commit_lines = commit_log.strip().split('\n')
+    commits = []
+    
+    for line in commit_lines:
+        parts = line.split(' ', 1)
+        if len(parts) >= 2:
+            sha = parts[0]
+            message = parts[1] if len(parts) > 1 else "No message"
+            commits.append((sha, message))
+    
+    if not commits:
+        print_error("No commits found")
+        sys.exit(1)
+    
+    # Create choices for the dropdown menu
+    choices = []
+    for sha, message in commits:
+        choice_text = f"{sha}: {message}"
+        choices.append((choice_text, sha))
+    
+    # Show native CLI dropdown
+    try:
+        questions = [
+            inquirer.List('commit',
+                         message="Select a commit",
+                         choices=[choice[0] for choice in choices],
+                         carousel=True)
+        ]
+        
+        answers = inquirer.prompt(questions)
+        if not answers:
+            print_error("\nSelection cancelled")
+            sys.exit(1)
+            
+        # Find the commit SHA for the selected choice
+        selected_text = answers['commit']
+        for choice_text, sha in choices:
+            if choice_text == selected_text:
+                return sha
+                
+    except KeyboardInterrupt:
+        print_error("\nSelection cancelled")
         sys.exit(1)
 
 def explain_pr(force_select=False):
@@ -132,12 +186,26 @@ def explain_pr(force_select=False):
     
     return prompt, diff_content
 
-def explain_commit(ref='HEAD'):
+def explain_commit(ref='HEAD', force_select=False):
     """Handle commit explanation"""
-    # Check if commit exists
-    if run_command(['git', 'cat-file', '-e', ref]) is None:
-        print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
-        sys.exit(1)
+    
+    # If no ref specified or force select, show interactive selection
+    if ref == 'HEAD' and force_select:
+        ref = select_commit_interactive()
+    elif ref != 'HEAD':
+        # Check if the provided commit exists
+        if run_command(['git', 'cat-file', '-e', ref]) is None:
+            print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
+            # Offer interactive selection as fallback
+            print_info("Would you like to select from recent commits instead?")
+            try:
+                response = input("Select from recent commits? (y/N): ").strip().lower()
+                if response == 'y':
+                    ref = select_commit_interactive()
+                else:
+                    sys.exit(1)
+            except (KeyboardInterrupt, EOFError):
+                sys.exit(1)
     
     prompt = """Provide a concise summary for a commit message based on the following diff. Describe the key changes and the motivation. Here is the diff:"""
     
@@ -179,7 +247,7 @@ def main():
     
     # Options
     parser.add_argument('-c', '--clipboard', action='store_true', help='Copy result to clipboard instead of printing to stdout')
-    parser.add_argument('-s', '--select', action='store_true', help='Force interactive PR selection (only works with -P)')
+    parser.add_argument('-s', '--select', action='store_true', help='Force interactive selection (works with -P for PRs, -C for commits)')
     
     args = parser.parse_args()
     
@@ -205,7 +273,7 @@ def main():
     elif args.diff:
         prompt, diff_content = explain_diff(args.diff)
     else:
-        prompt, diff_content = explain_commit(args.commit)
+        prompt, diff_content = explain_commit(args.commit, force_select=args.select)
     
     # Send to AI provider
     try:
