@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "explain-git"
+version = "1.0.0"
+requires-python = ">=3.7"
+dependencies = [
+    "pyperclip",
+    "inquirer",
+    "rich"
+]
+
+[project.scripts]
+explain = "explain_git.cli:main"
