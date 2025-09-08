@@ -182,7 +182,7 @@ def explain_pr(force_select=False):
         print_error("Could not get PR diff or PR has no changes")
         sys.exit(1)
     
-    base_prompt = """Provide a concise explanation for a pull request suitable for a GitHub description, based on the following diff. Format it as Markdown with 'Summary' and 'Key Changes' sections. Here is the diff:"""
+    base_prompt = """Provide an explanation for a pull request suitable for a GitHub description, based on the following diff. Format it as Markdown with 'Summary' and 'Changes' sections. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
     
     # Apply verbosity setting
     config = load_config()
@@ -212,7 +212,7 @@ def explain_commit(ref='HEAD', force_select=False):
             except (KeyboardInterrupt, EOFError):
                 sys.exit(1)
     
-    base_prompt = """Provide a concise summary for a commit message based on the following diff. Describe the key changes and the motivation. Here is the diff:"""
+    base_prompt = """Provide a summary for a commit message based on the following diff. Describe the changes and the motivation. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
     
     # Apply verbosity setting
     config = load_config()
@@ -233,7 +233,7 @@ def explain_diff(ref):
         print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
         sys.exit(1)
     
-    base_prompt = f"""Provide a concise summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the key differences. Here is the diff:"""
+    base_prompt = f"""Provide a summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
     
     # Apply verbosity setting
     config = load_config()

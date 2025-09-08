@@ -127,9 +127,9 @@ def _configure_provider(config):
     for name, details in config['providers'].items():
         color = details.get('color', 'cyan')
         if name == current_provider:
-            choice_text = f"[{color}]{name}[/{color}] - {details['description']} (current)"
+            choice_text = f"{name} - {details['description']} (current)"
         else:
-            choice_text = f"[{color}]{name}[/{color}] - {details['description']}"
+            choice_text = f"{name} - {details['description']}"
         choices.append((choice_text, name))
     
     try:
@@ -163,9 +163,9 @@ def _configure_verbosity(config):
     current_verbosity = config.get('verbosity', 'balanced')
     
     verbosity_options = {
-        'concise': 'Short and sweet - minimal explanations',
-        'balanced': 'Balanced - good detail without being overwhelming',
-        'hyperdetailed': 'Hyperdetailed - comprehensive explanations with examples'
+        'concise': 'Short and sweet',
+        'balanced': 'Good detail without being overwhelming',
+        'hyperdetailed': 'Comprehensive explanations'
     }
     
     choices = []
