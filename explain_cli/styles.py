@@ -63,14 +63,14 @@ def create_spinner(text, provider=None):
     if provider:
         # Provider-specific colors with code-style formatting
         provider_colors = {
-            'gemini': 'blue',
-            'claude': 'dark_orange',
+            'gemini': 'rgb(50,129,252)',
+            'claude': 'rgb(217,119,87)',
             'default': 'cyan'
         }
         color = provider_colors.get(provider.lower(), provider_colors['default'])
         # Use code style (monospace, slightly highlighted) without visible backticks
         formatted_text = f"Getting explanation from [{color}]{provider}[/{color}]..."
-        return console.status(f"[dim]{formatted_text}[/dim]", spinner="dots")
+        return console.status(f"[dim]{formatted_text}[/dim]", spinner="dots", spinner_style=color)
     else:
         return console.status(f"[dim]{text}[/dim]", spinner="dots")
 
