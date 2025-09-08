@@ -5,7 +5,7 @@ import sys
 import shutil
 import pyperclip
 import inquirer
-from .config import get_ai_command, set_provider, show_config, load_config
+from .config import get_ai_command, show_interactive_config, load_config, get_prompt_for_verbosity
 from .styles import print_info, print_success, print_error, print_warning, print_provider, print_result, print_config, print_clipboard_success, create_spinner, ask_copy_raw
 
 CONFIG = load_config()
@@ -182,7 +182,12 @@ def explain_pr(force_select=False):
         print_error("Could not get PR diff or PR has no changes")
         sys.exit(1)
     
-    prompt = """Provide a concise explanation for a pull request suitable for a GitHub description, based on the following diff. Format it as Markdown with 'Summary' and 'Key Changes' sections. Here is the diff:"""
+    base_prompt = """Provide a concise explanation for a pull request suitable for a GitHub description, based on the following diff. Format it as Markdown with 'Summary' and 'Key Changes' sections. Here is the diff:"""
+    
+    # Apply verbosity setting
+    config = load_config()
+    verbosity = config.get('verbosity', 'balanced')
+    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
     
     return prompt, diff_content
 
@@ -207,7 +212,12 @@ def explain_commit(ref='HEAD', force_select=False):
             except (KeyboardInterrupt, EOFError):
                 sys.exit(1)
     
-    prompt = """Provide a concise summary for a commit message based on the following diff. Describe the key changes and the motivation. Here is the diff:"""
+    base_prompt = """Provide a concise summary for a commit message based on the following diff. Describe the key changes and the motivation. Here is the diff:"""
+    
+    # Apply verbosity setting
+    config = load_config()
+    verbosity = config.get('verbosity', 'balanced')
+    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
     
     diff_content = run_command(['git', 'show', ref])
     if not diff_content:
@@ -223,7 +233,12 @@ def explain_diff(ref):
         print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
         sys.exit(1)
     
-    prompt = f"""Provide a concise summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the key differences. Here is the diff:"""
+    base_prompt = f"""Provide a concise summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the key differences. Here is the diff:"""
+    
+    # Apply verbosity setting
+    config = load_config()
+    verbosity = config.get('verbosity', 'balanced')
+    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
     
     diff_content = run_command(['git', 'diff', ref])
     if not diff_content:
@@ -242,8 +257,7 @@ def main():
     group.add_argument('-D', '--diff', metavar='COMMIT', help='Explain diff between current repo state and specified commit')
     
     # Config commands
-    group.add_argument('--config', action='store_true', help='Show current configuration')
-    group.add_argument('--set-provider', metavar='PROVIDER', help='Set AI provider (gemini or claude)')
+    group.add_argument('--config', action='store_true', help='Open interactive configuration menu')
     
     # Options
     parser.add_argument('-c', '--clipboard', action='store_true', help='Copy result to clipboard instead of printing to stdout')
@@ -253,18 +267,12 @@ def main():
     
     # Handle config commands first
     if args.config:
-        config = load_config()
-        print_config(config)
-        return
-    
-    if args.set_provider:
-        if set_provider(args.set_provider):
-            print_success(f"Provider set to {args.set_provider}")
+        show_interactive_config()
         return
     
     # Require one of the main commands
     if not any([args.pull_request, args.commit is not None, args.diff]):
-        parser.error('Must specify one of: -P/--pull-request, -C/--commit, -D/--diff, --config, or --set-provider')
+        parser.error('Must specify one of: -P/--pull-request, -C/--commit, -D/--diff, or --config')
     
     check_dependencies()
     
