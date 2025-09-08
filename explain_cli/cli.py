@@ -102,7 +102,7 @@ def select_pr_interactive():
                 return pr_number
                 
     except KeyboardInterrupt:
-        print_error("\nSelection cancelled")
+        print_error("Selection cancelled")
         sys.exit(1)
 
 def select_commit_interactive():
@@ -146,7 +146,7 @@ def select_commit_interactive():
         
         answers = inquirer.prompt(questions)
         if not answers:
-            print_error("\nSelection cancelled")
+            print_error("Selection cancelled")
             sys.exit(1)
             
         # Find the commit SHA for the selected choice
@@ -156,7 +156,7 @@ def select_commit_interactive():
                 return sha
                 
     except KeyboardInterrupt:
-        print_error("\nSelection cancelled")
+        print_error("Selection cancelled")
         sys.exit(1)
 
 def explain_pr(force_select=False):

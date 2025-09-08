@@ -15,25 +15,25 @@ pip install https://github.com/ccmdi/explain-cli.git
 ## Usage
 
 ```bash
-# Explain current commit
-explain -C
+# Interactive commit/PR selection
+explain -C -s  # Select from recent commits
+explain -P -s  # Select from all PRs
 
-# Explain specific commit
-explain -C abc1234
+# Direct usage
+explain -C          # Current commit
+explain -C abc1234  # Specific commit
+explain -P          # Current PR
+explain -D abc1234  # Diff vs commit
 
-# Explain current PR (must be in PR branch)
-explain -P
+# Configuration
+explain --config
 
-# Explain diff between current state and commit
-explain -D abc1234
-
-# Copy to clipboard instead of stdout
+# Copy to clipboard
 explain -C -c
-explain -P -c
-explain -D abc1234 -c
 ```
 
 ## Requirements
 
-- `gh` CLI (GitHub)
-- `gemini` CLI / `claude` code
+- `git`
+- `gh` CLI (for PRs)
+- `gemini` CLI or `claude` code
