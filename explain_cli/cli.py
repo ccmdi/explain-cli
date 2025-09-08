@@ -14,18 +14,14 @@ def check_dependencies():
     """Check if required CLIs are available"""
     current_provider = CONFIG.get('ai_provider')
     
-    # Check AI provider
     ai_cmd = CONFIG.get('providers').get(current_provider).get('command')[0]
     if not shutil.which(ai_cmd):
         print_error(f"'{ai_cmd}' CLI not found in PATH")
         sys.exit(1)
     
-    # Check git (always required)
     if not shutil.which('git'):
         print_error("'git' CLI not found in PATH")
         sys.exit(1)
-    
-    # gh is optional - we'll check when needed
     
     try:
         import pyperclip
@@ -33,12 +29,17 @@ def check_dependencies():
         print_error("pyperclip not installed. Install with: pip install pyperclip")
         sys.exit(1)
 
-def run_command(cmd, shell=False):
+def run_command(cmd, shell=None):
     """Run command and return output, handle errors gracefully"""
+    import os
+    
+    if shell is None:
+        shell = os.name == 'nt'
+    
     try:
         result = subprocess.run(
             cmd if isinstance(cmd, list) else cmd,
-            shell=True,
+            shell=shell,
             capture_output=True,
             text=True,
             check=True,
@@ -48,16 +49,17 @@ def run_command(cmd, shell=False):
         return result.stdout.strip() if result.stdout else ""
     except subprocess.CalledProcessError as e:
         return None
+    except KeyboardInterrupt:
+        print_error("Operation cancelled")
+        sys.exit(1)
 
 def select_pr_interactive():
     """Show PR list and let user select one using a native CLI dropdown"""
     
-    # Check if gh is available
     if not shutil.which('gh'):
         print_error("GitHub CLI (gh) not available - PR selection requires gh CLI")
         sys.exit(1)
     
-    # Get PR list
     pr_list_output = run_command(['gh', 'pr', 'list', '--state', 'all', '--json', 'number,title,author,state'])
     if not pr_list_output:
         print_error("No pull requests found")
@@ -74,14 +76,12 @@ def select_pr_interactive():
         print_error("No pull requests found")
         sys.exit(1)
     
-    # Create choices for the dropdown menu
     choices = []
     for pr in prs:
         state_indicator = "🟢" if pr['state'] == 'OPEN' else "🔴" if pr['state'] == 'CLOSED' else "🟣"
         choice_text = f"#{pr['number']}: {pr['title']} (@{pr['author']['login']}) {state_indicator}"
         choices.append((choice_text, pr['number']))
     
-    # Show native CLI dropdown
     try:
         questions = [
             inquirer.List('pr',
@@ -279,7 +279,7 @@ def main():
     try:
         ai_command, provider = get_ai_command(prompt)
         
-        with create_spinner(f"Getting explanation from {provider}..."):
+        with create_spinner("Getting explanation...", provider=provider):
             process = subprocess.run(
                 ai_command,
                 input=diff_content,
@@ -297,12 +297,21 @@ def main():
             print_clipboard_success()
         else:
             print_result(result, is_markdown=True)
-            # Ask if user wants to copy raw markdown
             ask_copy_raw(result)
             
     except subprocess.CalledProcessError:
         print_error(f"Failed to run {provider} command")
         sys.exit(1)
+    except KeyboardInterrupt:
+        print_error("Operation cancelled")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print_error("Operation cancelled")
+        sys.exit(1)
+    except Exception as e:
+        print_error(f"Unexpected error: {e}")
+        sys.exit(1)

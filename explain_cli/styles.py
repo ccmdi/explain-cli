@@ -57,10 +57,22 @@ def print_clipboard_success():
     """Print clipboard copy success message"""
     console.print("[green]✓[/green] Result copied to clipboard!")
 
-def create_spinner(text):
+def create_spinner(text, provider=None):
     """Create a spinner for long-running operations"""
     from rich.spinner import Spinner
-    return console.status(f"[dim]{text}[/dim]", spinner="dots")
+    if provider:
+        # Provider-specific colors with code-style formatting
+        provider_colors = {
+            'gemini': 'blue',
+            'claude': 'dark_orange',
+            'default': 'cyan'
+        }
+        color = provider_colors.get(provider.lower(), provider_colors['default'])
+        # Use code style (monospace, slightly highlighted) without visible backticks
+        formatted_text = f"Getting explanation from [{color}]{provider}[/{color}]..."
+        return console.status(f"[dim]{formatted_text}[/dim]", spinner="dots")
+    else:
+        return console.status(f"[dim]{text}[/dim]", spinner="dots")
 
 def ask_copy_raw(content):
     """Ask user if they want to copy the raw markdown content"""
