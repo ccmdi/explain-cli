@@ -159,6 +159,81 @@ def select_commit_interactive():
         print_error("Selection cancelled")
         sys.exit(1)
 
+def select_branch_interactive(message="Select a branch", include_current=True):
+    """Show available branches and let user select one"""
+    
+    # Get all branches (local and remote)
+    local_branches = run_command(['git', 'branch', '--format=%(refname:short)'])
+    remote_branches = run_command(['git', 'branch', '-r', '--format=%(refname:short)'])
+    
+    if not local_branches and not remote_branches:
+        print_error("No branches found in repository")
+        sys.exit(1)
+    
+    current_branch = run_command(['git', 'branch', '--show-current'])
+    
+    branches = []
+    
+    # Add local branches
+    if local_branches:
+        for branch in local_branches.strip().split('\n'):
+            branch = branch.strip()
+            if branch and (include_current or branch != current_branch):
+                is_current = branch == current_branch
+                branches.append((branch, 'local', is_current))
+    
+    # Add remote branches (excluding HEAD and already seen local branches)
+    if remote_branches:
+        local_branch_names = [b[0] for b in branches]
+        for branch in remote_branches.strip().split('\n'):
+            branch = branch.strip()
+            if branch and not branch.endswith('/HEAD'):
+                # Strip origin/ prefix for display but keep for git commands
+                display_name = branch
+                if '/' in branch:
+                    short_name = branch.split('/', 1)[1]
+                    if short_name not in local_branch_names:
+                        branches.append((branch, 'remote', False))
+    
+    if not branches:
+        print_error("No selectable branches found")
+        sys.exit(1)
+    
+    # Create choices for the dropdown menu
+    choices = []
+    for branch, branch_type, is_current in branches:
+        if is_current:
+            choice_text = f"{branch} (current)"
+        elif branch_type == 'remote':
+            choice_text = f"{branch} (remote)"
+        else:
+            choice_text = branch
+        choices.append((choice_text, branch))
+    
+    # Show native CLI dropdown
+    try:
+        questions = [
+            inquirer.List('branch',
+                         message=message,
+                         choices=[choice[0] for choice in choices],
+                         carousel=True)
+        ]
+        
+        answers = inquirer.prompt(questions)
+        if not answers:
+            print_error("Selection cancelled")
+            sys.exit(1)
+            
+        # Find the branch name for the selected choice
+        selected_text = answers['branch']
+        for choice_text, branch in choices:
+            if choice_text == selected_text:
+                return branch
+                
+    except KeyboardInterrupt:
+        print_error("Selection cancelled")
+        sys.exit(1)
+
 def explain_pr(force_select=False):
     """Handle pull request explanation"""
     
@@ -247,21 +322,149 @@ def explain_diff(ref):
     
     return prompt, diff_content
 
+def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
+    """Handle diff between branches"""
+    
+    # Parse branch specification
+    if '..' in branch_spec:
+        # Format: branch1..branch2
+        branches = branch_spec.split('..', 1)
+        if len(branches) != 2 or not branches[0] or not branches[1]:
+            print_error("Invalid branch range format. Use: branch1..branch2")
+            sys.exit(1)
+        from_branch, to_branch = branches[0].strip(), branches[1].strip()
+        comparison_type = "range"
+    elif force_select:
+        # Interactive selection of two branches
+        from_branch = select_branch_interactive("Select first branch (FROM)", include_current=True)
+        to_branch = select_branch_interactive("Select second branch (TO)", include_current=True)
+        comparison_type = "range"
+    elif branch_spec == "HEAD" or not branch_spec:
+        # Default to comparing current branch with main/master
+        current_branch = run_command(['git', 'branch', '--show-current'])
+        if not current_branch:
+            print_error("Not on any branch")
+            sys.exit(1)
+        
+        # Try to find main branch (main, master, develop)
+        main_candidates = ['main', 'master', 'develop']
+        main_branch = None
+        for candidate in main_candidates:
+            if run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{candidate}']) is not None:
+                main_branch = candidate
+                break
+        
+        if not main_branch:
+            # If no main branch found, show interactive selection
+            main_branch = select_branch_interactive("Select base branch to compare against", include_current=False)
+        
+        from_branch = main_branch
+        to_branch = current_branch
+        comparison_type = "current_vs_main"
+    else:
+        # Single branch vs current working state
+        from_branch = branch_spec
+        to_branch = None  # Working directory
+        comparison_type = "branch_vs_working"
+    
+    # Validate branches exist
+    if comparison_type != "branch_vs_working":
+        for branch in [from_branch, to_branch]:
+            # Check if it's a local branch, remote branch, or commit
+            if (run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}']) is None and
+                run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{branch}']) is None and
+                run_command(['git', 'cat-file', '-e', branch]) is None):
+                print_error(f"Could not find branch or commit '{branch}'")
+                sys.exit(1)
+    else:
+        # Just validate the from_branch for working directory comparison
+        if (run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{from_branch}']) is None and
+            run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{from_branch}']) is None and
+            run_command(['git', 'cat-file', '-e', from_branch]) is None):
+            print_error(f"Could not find branch or commit '{from_branch}'")
+            sys.exit(1)
+    
+    # Build git diff command
+    git_cmd = ['git', 'diff']
+    
+    # Add file patterns if specified
+    if file_patterns:
+        git_cmd.extend(['--'])
+        git_cmd.extend(file_patterns)
+    
+    # Determine diff range and create appropriate prompt
+    if comparison_type == "range":
+        git_cmd.insert(2, f"{from_branch}..{to_branch}")
+        base_prompt = f"""Provide a summary of the changes between branch '{from_branch}' and branch '{to_branch}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+    elif comparison_type == "current_vs_main":
+        git_cmd.insert(2, f"{from_branch}..{to_branch}")
+        base_prompt = f"""Provide a summary of the changes between the base branch '{from_branch}' and the current branch '{to_branch}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+    else:  # branch_vs_working
+        git_cmd.insert(2, from_branch)
+        base_prompt = f"""Provide a summary of the changes between branch '{from_branch}' and the current working directory state. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+    
+    # Get the diff
+    diff_content = run_command(git_cmd)
+    if not diff_content:
+        if comparison_type == "range":
+            print_error(f"No differences found between '{from_branch}' and '{to_branch}'")
+        elif comparison_type == "current_vs_main":
+            print_error(f"No differences found between '{from_branch}' and current branch '{to_branch}'")
+        else:
+            print_error(f"No differences found between '{from_branch}' and working directory")
+        sys.exit(1)
+    
+    # Apply verbosity setting
+    config = load_config()
+    verbosity = config.get('verbosity', 'balanced')
+    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    
+    return prompt, diff_content
+
 def main():
-    parser = argparse.ArgumentParser(description='Explain Git commits or GitHub PRs using AI')
+    parser = argparse.ArgumentParser(
+        description='Explain Git commits, GitHub PRs, or branch differences using AI',
+        epilog='''
+Examples:
+  explain -C                    # Explain HEAD commit
+  explain -C abc123             # Explain specific commit
+  explain -C -s                 # Select commit interactively
+  
+  explain -P                    # Explain current PR
+  explain -P -s                 # Select PR interactively
+  
+  explain -D                    # Compare current branch vs main/master
+  explain -D feature..main      # Compare two branches
+  explain -D main               # Compare main branch vs working directory
+  explain -D abc123             # Compare commit vs working directory
+  explain -D -s                 # Select branches interactively
+  explain -D -f "*.py"          # Compare only Python files
+  
+  explain --config              # Configure AI provider and settings
+        ''',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     
     # Main command group
     group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('-P', '--pull-request', action='store_true', help='Explain current pull request (or select interactively with --select)')
-    group.add_argument('-C', '--commit', nargs='?', const='HEAD', help='Explain commit (defaults to HEAD)')
-    group.add_argument('-D', '--diff', metavar='COMMIT', help='Explain diff between current repo state and specified commit')
+    group.add_argument('-P', '--pull-request', action='store_true', 
+                      help='Explain current pull request (or select interactively with --select)')
+    group.add_argument('-C', '--commit', nargs='?', const='HEAD', metavar='REF',
+                      help='Explain commit (defaults to HEAD, use SHA/tag/branch)')
+    group.add_argument('-D', '--diff', metavar='SPEC', nargs='?', const='HEAD',
+                      help='Explain differences. SPEC can be: branch1..branch2, branch-name, commit-sha, or omitted for current vs main/master')
     
     # Config commands
-    group.add_argument('--config', action='store_true', help='Open interactive configuration menu')
+    group.add_argument('--config', action='store_true',
+                      help='Open interactive configuration menu')
     
     # Options
-    parser.add_argument('-c', '--clipboard', action='store_true', help='Copy result to clipboard instead of printing to stdout')
-    parser.add_argument('-s', '--select', action='store_true', help='Force interactive selection (works with -P for PRs, -C for commits)')
+    parser.add_argument('-c', '--clipboard', action='store_true',
+                       help='Copy result to clipboard instead of printing to stdout')
+    parser.add_argument('-s', '--select', action='store_true',
+                       help='Force interactive selection menu')
+    parser.add_argument('-f', '--files', metavar='PATTERN', nargs='+',
+                       help='Filter diff to specific file patterns (e.g., "*.py" "src/*.js")')
     
     args = parser.parse_args()
     
@@ -271,15 +474,32 @@ def main():
         return
     
     # Require one of the main commands
-    if not any([args.pull_request, args.commit is not None, args.diff]):
+    if not any([args.pull_request, args.commit is not None, args.diff is not None]):
         parser.error('Must specify one of: -P/--pull-request, -C/--commit, -D/--diff, or --config')
     
     check_dependencies()
     
+    # Determine which command to run
     if args.pull_request:
         prompt, diff_content = explain_pr(force_select=args.select)
-    elif args.diff:
-        prompt, diff_content = explain_diff(args.diff)
+    elif args.diff is not None:
+        # Use diff for both branch and commit comparisons
+        branch_spec = args.diff
+        
+        # Handle backward compatibility: if branch_spec looks like a commit SHA (and not a branch range),
+        # and it's not a valid branch name, fall back to old diff behavior
+        if (branch_spec != 'HEAD' and '..' not in branch_spec and not args.select and
+            len(branch_spec) >= 7 and all(c in '0123456789abcdef' for c in branch_spec[:7].lower())):
+            # Looks like a commit SHA, check if it's actually a branch first
+            if (run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch_spec}']) is None and
+                run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{branch_spec}']) is None):
+                # Not a branch, use old diff behavior for backward compatibility
+                print_warning(f"'{branch_spec}' looks like a commit SHA. Use -C for commit explanations. Treating as diff vs working directory.")
+                prompt, diff_content = explain_diff(branch_spec)
+            else:
+                prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
+        else:
+            prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
     else:
         prompt, diff_content = explain_commit(args.commit, force_select=args.select)
     
