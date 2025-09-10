@@ -5,12 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "explain-cli"
 version = "1.0.0"
+description = "Explain repo state with Claude Code or Gemini CLI"
+readme = "README.md"
 requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+    {name = "ccmdi", email = "ccmdi.dev@gmail.com"}
+]
+keywords = ["git", "ai", "cli", "llm", "explain"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
 dependencies = [
     "pyperclip",
     "inquirer",
     "rich"
 ]
+
+[project.urls]
+Homepage = "https://github.com/ccmdi/explain-cli"
+Repository = "https://github.com/ccmdi/explain-cli"
+Issues = "https://github.com/ccmdi/explain-cli/issues"
 
 [project.scripts]
 explain = "explain_cli.cli:main"
