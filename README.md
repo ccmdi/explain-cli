@@ -6,13 +6,17 @@ Explain Git commits, PRs, and branch differences using Claude Code or Gemini CLI
 
 ```bash
 # uv
+uv tool install explain-cli
+# uv (source)
 uv tool install https://github.com/ccmdi/explain-cli.git
 
 # pip
+pip install explain-cli
+# pip (source)
 pip install https://github.com/ccmdi/explain-cli.git
 ```
 
-## Most Common Commands
+## Commands
 
 ```bash
 # Explain commits
