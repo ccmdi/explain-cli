@@ -234,7 +234,7 @@ def select_branch_interactive(message="Select a branch", include_current=True):
         print_error("Selection cancelled")
         sys.exit(1)
 
-def explain_pr(force_select=False):
+def explain_pr(pr_spec=None, force_select=False):
     """Handle pull request explanation"""
     
     # Check if gh is available
@@ -242,16 +242,32 @@ def explain_pr(force_select=False):
         print_error("GitHub CLI (gh) not available - PR explanation requires gh CLI")
         sys.exit(1)
     
-    # Check if we're in a PR branch
-    current_pr_check = run_command(['gh', 'pr', 'view'])
-    
-    if force_select or current_pr_check is None or current_pr_check == "":
-        # Show interactive selection (either forced or not in a PR branch)
+    if force_select:
+        # Show interactive selection
         pr_number = select_pr_interactive()
         diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+    elif pr_spec and pr_spec != True:
+        # Specific PR number provided
+        try:
+            pr_number = int(pr_spec)
+            diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+            if not diff_content:
+                print_error(f"Could not get diff for PR #{pr_number}. Make sure the PR exists.")
+                sys.exit(1)
+        except ValueError:
+            print_error(f"Invalid PR number: '{pr_spec}'. Please provide a valid number.")
+            sys.exit(1)
     else:
-        # In a PR branch, use current PR
-        diff_content = run_command(['gh', 'pr', 'diff'])
+        # Try current PR, fallback to selection if not in PR branch
+        current_pr_check = run_command(['gh', 'pr', 'view'])
+        
+        if current_pr_check is None or current_pr_check == "":
+            # Not in a PR branch, show interactive selection
+            pr_number = select_pr_interactive()
+            diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+        else:
+            # In a PR branch, use current PR
+            diff_content = run_command(['gh', 'pr', 'diff'])
     
     if not diff_content or diff_content == "":
         print_error("Could not get PR diff or PR has no changes")
@@ -431,6 +447,7 @@ Examples:
   explain -C -s                 # Select commit interactively
   
   explain -P                    # Explain current PR
+  explain -P 3                  # Explain specific PR number
   explain -P -s                 # Select PR interactively
   
   explain -D                    # Compare current branch vs main/master
@@ -447,8 +464,8 @@ Examples:
     
     # Main command group
     group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('-P', '--pull-request', action='store_true', 
-                      help='Explain current pull request (or select interactively with --select)')
+    group.add_argument('-P', '--pull-request', nargs='?', const=True, metavar='NUMBER',
+                      help='Explain pull request (current PR, specific number, or use --select for interactive)')
     group.add_argument('-C', '--commit', nargs='?', const='HEAD', metavar='REF',
                       help='Explain commit (defaults to HEAD, use SHA/tag/branch)')
     group.add_argument('-D', '--diff', metavar='SPEC', nargs='?', const='HEAD',
@@ -474,14 +491,14 @@ Examples:
         return
     
     # Require one of the main commands
-    if not any([args.pull_request, args.commit is not None, args.diff is not None]):
+    if not any([args.pull_request is not None, args.commit is not None, args.diff is not None]):
         parser.error('Must specify one of: -P/--pull-request, -C/--commit, -D/--diff, or --config')
     
     check_dependencies()
     
     # Determine which command to run
-    if args.pull_request:
-        prompt, diff_content = explain_pr(force_select=args.select)
+    if args.pull_request is not None:
+        prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select)
     elif args.diff is not None:
         # Use diff for both branch and commit comparisons
         branch_spec = args.diff
