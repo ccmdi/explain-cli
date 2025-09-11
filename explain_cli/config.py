@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
             'color': 'rgb(50,129,252)'
         },
         'claude': {
-            'command': ['claude', '-c', '-p'],
+            'command': ['claude', '-p'],
             'description': 'Claude Code',
             'color': 'rgb(217,119,87)'
         }
