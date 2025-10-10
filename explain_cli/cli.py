@@ -432,7 +432,7 @@ def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
     prompt = get_prompt_for_verbosity(base_prompt, verbosity)
-
+    
     return prompt, diff_content
 
 def main():
