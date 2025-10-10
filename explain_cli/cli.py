@@ -5,7 +5,8 @@ import sys
 import shutil
 import pyperclip
 import inquirer
-from .config import get_ai_command, show_interactive_config, load_config, get_prompt_for_verbosity
+from .config import get_ai_command, show_interactive_config, load_config
+from .prompts import get_prompt_for_verbosity, EXPLAIN_DIFF_BP, EXPLAIN_COMMIT_BP, EXPLAIN_PR_BP, EXPLAIN_BRANCH_BP, EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP, EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP
 from .styles import print_info, print_success, print_error, print_warning, print_provider, print_result, print_config, print_clipboard_success, create_spinner, ask_copy_raw
 
 CONFIG = load_config()
@@ -273,12 +274,9 @@ def explain_pr(pr_spec=None, force_select=False):
         print_error("Could not get PR diff or PR has no changes")
         sys.exit(1)
     
-    base_prompt = """Provide an explanation for a pull request suitable for a GitHub description, based on the following diff. Format it as Markdown with 'Summary' and 'Changes' sections. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
-    
-    # Apply verbosity setting
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    prompt = get_prompt_for_verbosity(EXPLAIN_PR_BP(pr_spec), verbosity)
     
     return prompt, diff_content
 
@@ -303,12 +301,9 @@ def explain_commit(ref='HEAD', force_select=False):
             except (KeyboardInterrupt, EOFError):
                 sys.exit(1)
     
-    base_prompt = """Provide a summary for a commit message based on the following diff. Describe the changes and the motivation. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
-    
-    # Apply verbosity setting
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    prompt = get_prompt_for_verbosity(EXPLAIN_COMMIT_BP(ref), verbosity)
     
     diff_content = run_command(['git', 'show', ref])
     if not diff_content:
@@ -319,17 +314,14 @@ def explain_commit(ref='HEAD', force_select=False):
 
 def explain_diff(ref):
     """Handle diff between current repo state and a commit"""
-    # Check if commit exists
     if run_command(['git', 'cat-file', '-e', ref]) is None:
         print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
         sys.exit(1)
     
-    base_prompt = f"""Provide a summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
-    
     # Apply verbosity setting
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    prompt = get_prompt_for_verbosity(EXPLAIN_DIFF_BP(ref), verbosity)
     
     diff_content = run_command(['git', 'diff', ref])
     if not diff_content:
@@ -411,13 +403,13 @@ def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
     # Determine diff range and create appropriate prompt
     if comparison_type == "range":
         git_cmd.insert(2, f"{from_branch}..{to_branch}")
-        base_prompt = f"""Provide a summary of the changes between branch '{from_branch}' and branch '{to_branch}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+        base_prompt = EXPLAIN_BRANCH_BP(from_branch, to_branch)
     elif comparison_type == "current_vs_main":
         git_cmd.insert(2, f"{from_branch}..{to_branch}")
-        base_prompt = f"""Provide a summary of the changes between the base branch '{from_branch}' and the current branch '{to_branch}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+        base_prompt = EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP(from_branch, to_branch)
     else:  # branch_vs_working
         git_cmd.insert(2, from_branch)
-        base_prompt = f"""Provide a summary of the changes between branch '{from_branch}' and the current working directory state. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+        base_prompt = EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP(from_branch, to_branch)
     
     # Get the diff
     diff_content = run_command(git_cmd)
