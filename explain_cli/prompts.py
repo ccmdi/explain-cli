@@ -1,4 +1,4 @@
-BP = """* All descriptions are for code review. Focus on specific changes and not broad intent.* NEVER mention the context of the description, e.g NEVER SAY "based on the diff...", "based on the commit...", "this diff...", etc. NEVER EVEN SAY THE WORD "DIFF". Always just describe. THAT'S IT."""
+BP = """* All descriptions are for code review. Focus on specific changes and not broad intent.* NEVER mention the context of the description, e.g NEVER SAY "based on the diff...", "based on the commit...", "this diff...", etc. NEVER EVEN SAY THE WORD "DIFF". Always just describe. THAT'S IT. * Try and stick to bullet points if there are more than a few changes."""
 
 def EXPLAIN_DIFF_BP(ref): 
     return BP + f"""Provide a summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the main differences. Here is the diff:"""
