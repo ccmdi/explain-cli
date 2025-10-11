@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-from rich.console import Console
-from rich.text import Text
-from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.live import Live
 import sys
+from rich.console import Console
 
 console = Console(stderr=True)
 

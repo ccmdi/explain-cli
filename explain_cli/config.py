@@ -193,14 +193,3 @@ def _configure_verbosity(config):
             
     except KeyboardInterrupt:
         pass
-
-def get_prompt_for_verbosity(base_prompt, verbosity_level):
-    """Adjust prompt based on verbosity level"""
-    verbosity_modifiers = {
-        'concise': " Keep the response concise and focused on the most important points.",
-        'balanced': " Provide a well-balanced explanation with good detail.",
-        'hyperdetailed': " Provide a comprehensive, detailed explanation with examples, context, and thorough analysis. Include technical details and reasoning behind changes."
-    }
-    
-    modifier = verbosity_modifiers.get(verbosity_level, verbosity_modifiers['balanced'])
-    return base_prompt + modifier

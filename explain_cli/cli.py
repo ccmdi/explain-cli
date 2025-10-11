@@ -3,10 +3,8 @@ import argparse
 import subprocess
 import sys
 import shutil
-import pyperclip
-import inquirer
-from .config import get_ai_command, show_interactive_config, load_config, get_prompt_for_verbosity
-from .styles import print_info, print_success, print_error, print_warning, print_provider, print_result, print_config, print_clipboard_success, create_spinner, ask_copy_raw
+from .config import get_ai_command, show_interactive_config, load_config
+from .styles import print_error, print_warning
 
 CONFIG = load_config()
 
@@ -55,7 +53,8 @@ def run_command(cmd, shell=None):
 
 def select_pr_interactive():
     """Show PR list and let user select one using a native CLI dropdown"""
-    
+    import inquirer
+
     if not shutil.which('gh'):
         print_error("GitHub CLI (gh) not available - PR selection requires gh CLI")
         sys.exit(1)
@@ -107,7 +106,8 @@ def select_pr_interactive():
 
 def select_commit_interactive():
     """Show recent commits and let user select one"""
-    
+    import inquirer
+
     # Get recent commits with nice formatting
     commit_log = run_command(['git', 'log', '--oneline', '--decorate', '--color=never', '-20'])
     if not commit_log:
@@ -161,7 +161,8 @@ def select_commit_interactive():
 
 def select_branch_interactive(message="Select a branch", include_current=True):
     """Show available branches and let user select one"""
-    
+    import inquirer
+
     # Get all branches (local and remote)
     local_branches = run_command(['git', 'branch', '--format=%(refname:short)'])
     remote_branches = run_command(['git', 'branch', '-r', '--format=%(refname:short)'])
@@ -272,19 +273,17 @@ def explain_pr(pr_spec=None, force_select=False):
     if not diff_content or diff_content == "":
         print_error("Could not get PR diff or PR has no changes")
         sys.exit(1)
-    
-    base_prompt = """Provide an explanation for a pull request suitable for a GitHub description, based on the following diff. Format it as Markdown with 'Summary' and 'Changes' sections. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
-    
-    # Apply verbosity setting
+
+    from .prompts import get_prompt_for_verbosity, EXPLAIN_PR_BP
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    prompt = get_prompt_for_verbosity(EXPLAIN_PR_BP(pr_spec), verbosity)
     
     return prompt, diff_content
 
 def explain_commit(ref='HEAD', force_select=False):
     """Handle commit explanation"""
-    
+
     # If no ref specified or force select, show interactive selection
     if ref == 'HEAD' and force_select:
         ref = select_commit_interactive()
@@ -293,6 +292,7 @@ def explain_commit(ref='HEAD', force_select=False):
         if run_command(['git', 'cat-file', '-e', ref]) is None:
             print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
             # Offer interactive selection as fallback
+            from .styles import print_info
             print_info("Would you like to select from recent commits instead?")
             try:
                 response = input("Select from recent commits? (y/N): ").strip().lower()
@@ -302,13 +302,11 @@ def explain_commit(ref='HEAD', force_select=False):
                     sys.exit(1)
             except (KeyboardInterrupt, EOFError):
                 sys.exit(1)
-    
-    base_prompt = """Provide a summary for a commit message based on the following diff. Describe the changes and the motivation. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
-    
-    # Apply verbosity setting
+
+    from .prompts import get_prompt_for_verbosity, EXPLAIN_COMMIT_BP
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    prompt = get_prompt_for_verbosity(EXPLAIN_COMMIT_BP(ref), verbosity)
     
     diff_content = run_command(['git', 'show', ref])
     if not diff_content:
@@ -319,17 +317,15 @@ def explain_commit(ref='HEAD', force_select=False):
 
 def explain_diff(ref):
     """Handle diff between current repo state and a commit"""
-    # Check if commit exists
     if run_command(['git', 'cat-file', '-e', ref]) is None:
         print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
         sys.exit(1)
-    
-    base_prompt = f"""Provide a summary of the changes between the current repository state and commit '{ref}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
-    
+
     # Apply verbosity setting
+    from .prompts import get_prompt_for_verbosity, EXPLAIN_DIFF_BP
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
+    prompt = get_prompt_for_verbosity(EXPLAIN_DIFF_BP(ref), verbosity)
     
     diff_content = run_command(['git', 'diff', ref])
     if not diff_content:
@@ -409,15 +405,16 @@ def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
         git_cmd.extend(file_patterns)
     
     # Determine diff range and create appropriate prompt
+    from .prompts import EXPLAIN_BRANCH_BP, EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP, EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP
     if comparison_type == "range":
         git_cmd.insert(2, f"{from_branch}..{to_branch}")
-        base_prompt = f"""Provide a summary of the changes between branch '{from_branch}' and branch '{to_branch}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+        base_prompt = EXPLAIN_BRANCH_BP(from_branch, to_branch)
     elif comparison_type == "current_vs_main":
         git_cmd.insert(2, f"{from_branch}..{to_branch}")
-        base_prompt = f"""Provide a summary of the changes between the base branch '{from_branch}' and the current branch '{to_branch}'. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+        base_prompt = EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP(from_branch, to_branch)
     else:  # branch_vs_working
         git_cmd.insert(2, from_branch)
-        base_prompt = f"""Provide a summary of the changes between branch '{from_branch}' and the current working directory state. Describe what has changed and the main differences. Be specific and don't describe broad intent; the description is for code review. Here is the diff:"""
+        base_prompt = EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP(from_branch, to_branch)
     
     # Get the diff
     diff_content = run_command(git_cmd)
@@ -431,6 +428,7 @@ def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
         sys.exit(1)
     
     # Apply verbosity setting
+    from .prompts import get_prompt_for_verbosity
     config = load_config()
     verbosity = config.get('verbosity', 'balanced')
     prompt = get_prompt_for_verbosity(base_prompt, verbosity)
@@ -522,8 +520,10 @@ Examples:
     
     # Send to AI provider
     try:
+        from .styles import create_spinner, print_result, print_clipboard_success, ask_copy_raw
+
         ai_command, provider = get_ai_command(prompt)
-        
+
         with create_spinner("Getting explanation...", provider=provider):
             process = subprocess.run(
                 ai_command,
@@ -534,10 +534,11 @@ Examples:
                 errors='replace',
                 shell=True
             )
-        
+
         result = process.stdout.strip()
-        
+
         if args.clipboard:
+            import pyperclip
             pyperclip.copy(result)
             print_clipboard_success()
         else:
