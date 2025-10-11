@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "explain-cli"
-version = "1.0.2"
+version = "1.0.4"
 description = "Explain repo state with Claude Code or Gemini CLI"
 readme = "README.md"
 requires-python = ">=3.7"
