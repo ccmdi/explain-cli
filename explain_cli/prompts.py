@@ -3,13 +3,10 @@
 from .config import load_config
 
 # Base prompt with strict formatting rules
-BP = """CRITICAL FORMATTING RULES:
-- NEVER start your response with phrases like "Here's", "This is", "The following", "Based on", "Looking at", "I can see", or similar introductory phrases.
-- NEVER mention the context (diff, commit, PR, etc.). Just describe the changes directly.
-- NEVER use the word "diff" in your response.
-- Start directly with the content - either a heading, bullet point, or the first sentence of your explanation.
-- Use bullet points when there are multiple changes.
-- Be direct and factual.
+BP = """STRICT RULES (FOLLOW EXACTLY):
+1. FORBIDDEN WORDS: Never use "diff", "patch", "delta", or "this PR/commit/branch shows". Just describe what changed.
+2. FORBIDDEN OPENINGS: Never start with "Here's", "This is", "The following", "Based on", "Looking at", "I can see", "This refactors", "This updates". Start with the actual content.
+3. FORMAT: Use bullet points for multiple changes. Be direct. No preamble.
 
 """
 
