@@ -9,6 +9,7 @@ CONFIG_FILE = Path(__file__).parent / 'config.json'
 DEFAULT_CONFIG = {
     'ai_provider': 'gemini',  # 'gemini' or 'claude'
     'verbosity': 'balanced',  # 'hyperdetailed', 'balanced', 'concise'
+    'response_style': 'default',  # 'code_review', 'release_notes', 'nontechnical', 'technical', 'default'
     'providers': {
         'gemini': {
             'command': ['gemini', '-p'],
@@ -78,22 +79,21 @@ def show_interactive_config():
     """Show interactive configuration menu"""
     import inquirer
     from rich.console import Console
-    
+
     console = Console(stderr=True)
     config = load_config()
-    
-    # Build menu options with current values
+
     current_provider = config.get('ai_provider', 'gemini')
     current_verbosity = config.get('verbosity', 'balanced')
-    provider_color = config['providers'][current_provider].get('color', 'cyan')
-    
-    # Format choices to show current values directly
+    current_style = config.get('response_style', 'default')
+
     choices = [
         f"Provider ({current_provider})",
         f"Verbosity ({current_verbosity})",
+        f"Response Style ({current_style})",
         "Exit"
     ]
-    
+
     try:
         questions = [
             inquirer.List('action',
@@ -101,16 +101,18 @@ def show_interactive_config():
                          choices=choices,
                          carousel=True)
         ]
-        
+
         answers = inquirer.prompt(questions)
         if not answers or answers['action'] == 'Exit':
             return
-            
+
         if answers['action'].startswith('Provider'):
             _configure_provider(config)
         elif answers['action'].startswith('Verbosity'):
             _configure_verbosity(config)
-            
+        elif answers['action'].startswith('Response Style'):
+            _configure_response_style(config)
+
     except KeyboardInterrupt:
         return
 
@@ -182,14 +184,55 @@ def _configure_verbosity(config):
                          choices=choices,
                          carousel=True)
         ]
-        
+
         answers = inquirer.prompt(questions)
         if answers:
-            # Extract the level name from the selection
             selected = answers['verbosity'].split(' - ')[0]
             config['verbosity'] = selected
             save_config(config)
             console.print(f"[green]✓[/green] Verbosity set to {selected}")
-            
+
+    except KeyboardInterrupt:
+        pass
+
+
+def _configure_response_style(config):
+    """Configure response style for different audiences"""
+    import inquirer
+    from rich.console import Console
+
+    console = Console(stderr=True)
+    current_style = config.get('response_style', 'default')
+
+    style_options = {
+        'default': 'General developer audience',
+        'code_review': 'Technical code review (implementation details)',
+        'release_notes': 'End users and stakeholders (user-friendly)',
+        'nontechnical': 'Non-technical readers (simple terms)',
+        'technical': 'Developers (precise technical details)'
+    }
+
+    choices = []
+    for style, description in style_options.items():
+        if style == current_style:
+            choices.append(f"{style} - {description} (current)")
+        else:
+            choices.append(f"{style} - {description}")
+
+    try:
+        questions = [
+            inquirer.List('style',
+                         message="Select response style",
+                         choices=choices,
+                         carousel=True)
+        ]
+
+        answers = inquirer.prompt(questions)
+        if answers:
+            selected = answers['style'].split(' - ')[0]
+            config['response_style'] = selected
+            save_config(config)
+            console.print(f"[green]✓[/green] Response style set to {selected}")
+
     except KeyboardInterrupt:
         pass
