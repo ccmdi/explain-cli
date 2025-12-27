@@ -7,7 +7,7 @@ from pathlib import Path
 CONFIG_FILE = Path(__file__).parent / 'config.json'
 
 DEFAULT_CONFIG = {
-    'ai_provider': 'gemini',  # 'gemini', 'claude', or 'numba2'
+    'ai_provider': 'gemini',  # 'gemini' or 'claude'
     'verbosity': 'balanced',  # 'hyperdetailed', 'balanced', 'concise'
     'response_style': 'default',  # 'code_review', 'release_notes', 'nontechnical', 'technical', 'default'
     'providers': {
@@ -20,11 +20,6 @@ DEFAULT_CONFIG = {
             'command': ['claude', '-p'],
             'description': 'Claude Code',
             'color': 'rgb(217,119,87)'
-        },
-        'numba2': {
-            'command': ['numba2', '-p'],
-            'description': 'Numba 2',
-            'color': 'rgb(138,43,226)'
         }
     }
 }

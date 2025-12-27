@@ -108,16 +108,20 @@ def run_command(cmd, shell=None):
     except KeyboardInterrupt:
         exit_with_error("Operation cancelled")
 
-def select_pr_interactive():
+def select_pr_interactive(repo=None):
     """Show PR list and let user select one using a native CLI dropdown"""
     import json
 
     if not shutil.which('gh'):
         exit_with_error("GitHub CLI (gh) not available - PR selection requires gh CLI")
 
-    pr_list_output = run_command(['gh', 'pr', 'list', '--state', 'all', '--json', 'number,title,author,state'])
+    cmd = ['gh', 'pr', 'list', '--state', 'all', '--json', 'number,title,author,state']
+    if repo:
+        cmd.extend(['--repo', repo])
+
+    pr_list_output = run_command(cmd)
     if not pr_list_output:
-        exit_with_error("No pull requests found")
+        exit_with_error(f"No pull requests found{f' in {repo}' if repo else ''}")
 
     try:
         prs = json.loads(pr_list_output)
@@ -125,7 +129,7 @@ def select_pr_interactive():
         exit_with_error("Failed to parse PR list")
 
     if not prs:
-        exit_with_error("No pull requests found")
+        exit_with_error(f"No pull requests found{f' in {repo}' if repo else ''}")
 
     choices = []
     for pr in prs:
@@ -203,31 +207,46 @@ def select_branch_interactive(message="Select a branch", include_current=True):
 
     return interactive_select(choices, message, 'branch')
 
-def explain_pr(pr_spec=None, force_select=False):
+def explain_pr(pr_spec=None, force_select=False, repo=None):
     """Handle pull request explanation. Returns (base_prompt, diff_content)."""
     from .prompts import EXPLAIN_PR_BP
 
     if not shutil.which('gh'):
         exit_with_error("GitHub CLI (gh) not available - PR explanation requires gh CLI")
 
+    def get_pr_diff(pr_num=None):
+        """Get PR diff, optionally for a specific PR number and/or repo."""
+        cmd = ['gh', 'pr', 'diff']
+        if pr_num:
+            cmd.append(str(pr_num))
+        if repo:
+            cmd.extend(['--repo', repo])
+        return run_command(cmd)
+
     if force_select:
-        pr_number = select_pr_interactive()
-        diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+        pr_number = select_pr_interactive(repo=repo)
+        diff_content = get_pr_diff(pr_number)
     elif pr_spec and pr_spec != True:
         try:
             pr_number = int(pr_spec)
-            diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+            diff_content = get_pr_diff(pr_number)
             if not diff_content:
                 exit_with_error(f"Could not get diff for PR #{pr_number}. Make sure the PR exists.")
         except ValueError:
             exit_with_error(f"Invalid PR number: '{pr_spec}'. Please provide a valid number.")
     else:
-        current_pr_check = run_command(['gh', 'pr', 'view'])
-        if current_pr_check is None or current_pr_check == "":
-            pr_number = select_pr_interactive()
-            diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+        if repo:
+            # Remote repo specified but no PR number - must select interactively
+            pr_number = select_pr_interactive(repo=repo)
+            diff_content = get_pr_diff(pr_number)
         else:
-            diff_content = run_command(['gh', 'pr', 'diff'])
+            # Try current PR, fallback to selection if not in PR branch
+            current_pr_check = run_command(['gh', 'pr', 'view'])
+            if current_pr_check is None or current_pr_check == "":
+                pr_number = select_pr_interactive()
+                diff_content = get_pr_diff(pr_number)
+            else:
+                diff_content = get_pr_diff()
 
     if not diff_content or diff_content == "":
         exit_with_error("Could not get PR diff or PR has no changes")
@@ -360,6 +379,7 @@ Examples:
   explain -P                    # Explain current PR
   explain -P 3                  # Explain specific PR number
   explain -P -s                 # Select PR interactively
+  explain -P 123 -R owner/repo  # Explain PR from another GitHub repo
   
   explain -D                    # Compare current branch vs main/master
   explain -D feature..main      # Compare two branches
@@ -401,6 +421,8 @@ Examples:
     parser.add_argument('-v', '--verbosity', metavar='LEVEL',
                        choices=['concise', 'balanced', 'hyperdetailed'],
                        help='Verbosity level: concise, balanced, hyperdetailed')
+    parser.add_argument('-R', '--repo', metavar='OWNER/REPO',
+                       help='GitHub repository (e.g., "facebook/react"). Works with -P for remote PRs.')
     
     args = parser.parse_args()
     
@@ -414,10 +436,14 @@ Examples:
         parser.error('Must specify one of: -P/--pull-request, -C/--commit, -D/--diff, or --config')
     
     check_dependencies()
-    
+
+    # Warn if --repo is used with non-PR commands
+    if args.repo and args.pull_request is None:
+        print_warning("--repo only works with -P/--pull-request. Ignoring for this command.")
+
     # Determine which command to run
     if args.pull_request is not None:
-        base_prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select)
+        base_prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select, repo=args.repo)
     elif args.diff is not None:
         branch_spec = args.diff
 
