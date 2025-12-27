@@ -470,6 +470,7 @@ Examples:
     try:
         ai_command, provider = get_ai_command(prompt)
 
+        diff_content = (diff_content or "") + "\n\n" + prompt
         with create_spinner("Getting explanation...", provider=provider):
             process = subprocess.run(
                 ai_command,  # Pass as list
@@ -478,7 +479,7 @@ Examples:
                 capture_output=True,
                 encoding='utf-8',
                 errors='replace',
-                shell=False  # Don't use shell - let subprocess handle args properly
+                shell=True  # Don't use shell - let subprocess handle args properly
             )
 
         result = process.stdout.strip()

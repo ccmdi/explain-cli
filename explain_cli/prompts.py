@@ -8,6 +8,7 @@ BP = """STRICT RULES (FOLLOW EXACTLY):
 2. FORBIDDEN OPENINGS: Never start with "Here's", "This is", "The following", "Based on", "Looking at", "I can see", "This refactors", "This updates". Start with the actual content.
 3. FORMAT: Use bullet points for multiple changes. Be direct. No preamble.
 
+Use native markdown formatting.
 """
 
 # Response style modifiers
