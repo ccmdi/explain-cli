@@ -472,13 +472,13 @@ Examples:
 
         with create_spinner("Getting explanation...", provider=provider):
             process = subprocess.run(
-                ai_command,
+                ai_command,  # Pass as list
                 input=diff_content,
                 check=True,
                 capture_output=True,
                 encoding='utf-8',
                 errors='replace',
-                shell=True
+                shell=False  # Don't use shell - let subprocess handle args properly
             )
 
         result = process.stdout.strip()
