@@ -60,19 +60,21 @@ def get_prompt_for_verbosity(base_prompt, verbosity):
     return modifier + base_prompt
 
 
-def build_prompt(base_prompt):
+def build_prompt(base_prompt, verbosity_override=None, style_override=None):
     """
     Build a complete prompt with verbosity and response style settings.
 
     Args:
         base_prompt: The base prompt from one of the EXPLAIN_*_BP functions
+        verbosity_override: Optional verbosity level to use instead of config
+        style_override: Optional response style to use instead of config
 
     Returns:
         Complete prompt string with all modifiers applied
     """
     config = load_config()
-    verbosity = config.get('verbosity', 'balanced')
-    response_style = config.get('response_style', 'default')
+    verbosity = verbosity_override or config.get('verbosity', 'balanced')
+    response_style = style_override or config.get('response_style', 'default')
 
     verbosity_modifier = VERBOSITY_MODIFIERS.get(verbosity, VERBOSITY_MODIFIERS['balanced'])
     style_modifier = RESPONSE_STYLES.get(response_style, RESPONSE_STYLES['default'])

@@ -204,7 +204,7 @@ def select_branch_interactive(message="Select a branch", include_current=True):
     return interactive_select(choices, message, 'branch')
 
 def explain_pr(pr_spec=None, force_select=False):
-    """Handle pull request explanation"""
+    """Handle pull request explanation. Returns (base_prompt, diff_content)."""
     from .prompts import EXPLAIN_PR_BP
 
     if not shutil.which('gh'):
@@ -232,10 +232,10 @@ def explain_pr(pr_spec=None, force_select=False):
     if not diff_content or diff_content == "":
         exit_with_error("Could not get PR diff or PR has no changes")
 
-    return build_prompt(EXPLAIN_PR_BP(pr_spec)), diff_content
+    return EXPLAIN_PR_BP(pr_spec), diff_content
 
 def explain_commit(ref='HEAD', force_select=False):
-    """Handle commit explanation"""
+    """Handle commit explanation. Returns (base_prompt, diff_content)."""
     from .prompts import EXPLAIN_COMMIT_BP
     from .styles import print_info
 
@@ -258,10 +258,10 @@ def explain_commit(ref='HEAD', force_select=False):
     if not diff_content:
         exit_with_error("Could not get commit diff")
 
-    return build_prompt(EXPLAIN_COMMIT_BP(ref)), diff_content
+    return EXPLAIN_COMMIT_BP(ref), diff_content
 
 def explain_diff(ref):
-    """Handle diff between current repo state and a commit"""
+    """Handle diff between current repo state and a commit. Returns (base_prompt, diff_content)."""
     from .prompts import EXPLAIN_DIFF_BP
 
     if not is_valid_git_ref(ref):
@@ -271,10 +271,10 @@ def explain_diff(ref):
     if not diff_content:
         exit_with_error(f"No differences found between current state and commit '{ref}'")
 
-    return build_prompt(EXPLAIN_DIFF_BP(ref)), diff_content
+    return EXPLAIN_DIFF_BP(ref), diff_content
 
 def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
-    """Handle diff between branches"""
+    """Handle diff between branches. Returns (base_prompt, diff_content)."""
     from .prompts import EXPLAIN_BRANCH_BP, EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP, EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP
 
     # Parse branch specification
@@ -346,7 +346,7 @@ def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
         else:
             exit_with_error(f"No differences found between '{from_branch}' and working directory")
 
-    return build_prompt(base_prompt), diff_content
+    return base_prompt, diff_content
 
 def main():
     parser = argparse.ArgumentParser(
@@ -393,6 +393,14 @@ Examples:
                        help='Force interactive selection menu')
     parser.add_argument('-f', '--files', metavar='PATTERN', nargs='+',
                        help='Filter diff to specific file patterns (e.g., "*.py" "src/*.js")')
+
+    # Override options (don't change saved config)
+    parser.add_argument('--style', metavar='STYLE',
+                       choices=['default', 'code_review', 'release_notes', 'nontechnical', 'technical'],
+                       help='Response style: default, code_review, release_notes, nontechnical, technical')
+    parser.add_argument('-v', '--verbosity', metavar='LEVEL',
+                       choices=['concise', 'balanced', 'hyperdetailed'],
+                       help='Verbosity level: concise, balanced, hyperdetailed')
     
     args = parser.parse_args()
     
@@ -409,7 +417,7 @@ Examples:
     
     # Determine which command to run
     if args.pull_request is not None:
-        prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select)
+        base_prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select)
     elif args.diff is not None:
         branch_spec = args.diff
 
@@ -419,13 +427,16 @@ Examples:
             len(branch_spec) >= 7 and all(c in '0123456789abcdef' for c in branch_spec[:7].lower())):
             if not is_branch(branch_spec):
                 print_warning(f"'{branch_spec}' looks like a commit SHA. Use -C for commit explanations. Treating as diff vs working directory.")
-                prompt, diff_content = explain_diff(branch_spec)
+                base_prompt, diff_content = explain_diff(branch_spec)
             else:
-                prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
+                base_prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
         else:
-            prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
+            base_prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
     else:
-        prompt, diff_content = explain_commit(args.commit, force_select=args.select)
+        base_prompt, diff_content = explain_commit(args.commit, force_select=args.select)
+
+    # Build final prompt with CLI overrides (if any)
+    prompt = build_prompt(base_prompt, verbosity_override=args.verbosity, style_override=args.style)
 
     # Send to AI provider
     from .styles import create_spinner, print_result, print_clipboard_success, ask_copy_raw
