@@ -5,35 +5,93 @@ import sys
 import shutil
 from .config import get_ai_command, show_interactive_config, load_config
 from .styles import print_error, print_warning
+from .prompts import build_prompt
 
 CONFIG = load_config()
+
+
+def exit_with_error(message):
+    """Print error message and exit with code 1"""
+    print_error(message)
+    sys.exit(1)
+
+
+def is_valid_git_ref(ref):
+    """Check if a ref is a valid branch (local/remote) or commit"""
+    return (
+        run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{ref}']) is not None or
+        run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{ref}']) is not None or
+        run_command(['git', 'cat-file', '-e', ref]) is not None
+    )
+
+
+def is_branch(ref):
+    """Check if a ref is specifically a branch (not just a commit)"""
+    return (
+        run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{ref}']) is not None or
+        run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{ref}']) is not None
+    )
+
+
+def interactive_select(items, message, key_name='item'):
+    """
+    Generic interactive selector using inquirer.
+
+    Args:
+        items: List of tuples (display_text, value)
+        message: The prompt message to show
+        key_name: The key name for inquirer (used internally)
+
+    Returns:
+        The selected value, or exits on cancellation
+    """
+    import inquirer
+
+    try:
+        questions = [
+            inquirer.List(key_name,
+                         message=message,
+                         choices=[item[0] for item in items],
+                         carousel=True)
+        ]
+
+        answers = inquirer.prompt(questions)
+        if not answers:
+            exit_with_error("Selection cancelled")
+
+        selected_text = answers[key_name]
+        for display_text, value in items:
+            if display_text == selected_text:
+                return value
+
+        exit_with_error("Selection failed")
+
+    except KeyboardInterrupt:
+        exit_with_error("Selection cancelled")
 
 def check_dependencies():
     """Check if required CLIs are available"""
     current_provider = CONFIG.get('ai_provider')
-    
+
     ai_cmd = CONFIG.get('providers').get(current_provider).get('command')[0]
     if not shutil.which(ai_cmd):
-        print_error(f"'{ai_cmd}' CLI not found in PATH")
-        sys.exit(1)
-    
+        exit_with_error(f"'{ai_cmd}' CLI not found in PATH")
+
     if not shutil.which('git'):
-        print_error("'git' CLI not found in PATH")
-        sys.exit(1)
-    
+        exit_with_error("'git' CLI not found in PATH")
+
     try:
         import pyperclip
     except ImportError:
-        print_error("pyperclip not installed. Install with: pip install pyperclip")
-        sys.exit(1)
+        exit_with_error("pyperclip not installed. Install with: pip install pyperclip")
 
 def run_command(cmd, shell=None):
     """Run command and return output, handle errors gracefully"""
     import os
-    
+
     if shell is None:
         shell = os.name == 'nt'
-    
+
     try:
         result = subprocess.run(
             cmd if isinstance(cmd, list) else cmd,
@@ -42,139 +100,78 @@ def run_command(cmd, shell=None):
             text=True,
             check=True,
             encoding='utf-8',
-            errors='replace',  # Replace problematic chars instead of failing
+            errors='replace',
         )
         return result.stdout.strip() if result.stdout else ""
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         return None
     except KeyboardInterrupt:
-        print_error("Operation cancelled")
-        sys.exit(1)
+        exit_with_error("Operation cancelled")
 
-def select_pr_interactive():
+def select_pr_interactive(repo=None):
     """Show PR list and let user select one using a native CLI dropdown"""
-    import inquirer
+    import json
 
     if not shutil.which('gh'):
-        print_error("GitHub CLI (gh) not available - PR selection requires gh CLI")
-        sys.exit(1)
-    
-    pr_list_output = run_command(['gh', 'pr', 'list', '--state', 'all', '--json', 'number,title,author,state'])
+        exit_with_error("GitHub CLI (gh) not available - PR selection requires gh CLI")
+
+    cmd = ['gh', 'pr', 'list', '--state', 'all', '--json', 'number,title,author,state']
+    if repo:
+        cmd.extend(['--repo', repo])
+
+    pr_list_output = run_command(cmd)
     if not pr_list_output:
-        print_error("No pull requests found")
-        sys.exit(1)
-    
-    import json
+        exit_with_error(f"No pull requests found{f' in {repo}' if repo else ''}")
+
     try:
         prs = json.loads(pr_list_output)
     except json.JSONDecodeError:
-        print_error("Failed to parse PR list")
-        sys.exit(1)
-    
+        exit_with_error("Failed to parse PR list")
+
     if not prs:
-        print_error("No pull requests found")
-        sys.exit(1)
-    
+        exit_with_error(f"No pull requests found{f' in {repo}' if repo else ''}")
+
     choices = []
     for pr in prs:
         state_indicator = "🟢" if pr['state'] == 'OPEN' else "🔴" if pr['state'] == 'CLOSED' else "🟣"
         choice_text = f"#{pr['number']}: {pr['title']} (@{pr['author']['login']}) {state_indicator}"
         choices.append((choice_text, pr['number']))
-    
-    try:
-        questions = [
-            inquirer.List('pr',
-                         message="Select a pull request",
-                         choices=[choice[0] for choice in choices],
-                         carousel=True)
-        ]
-        
-        answers = inquirer.prompt(questions)
-        if not answers:
-            # print("\nSelection cancelled", file=sys.stderr)
-            sys.exit(1)
-            
-        # Find the PR number for the selected choice
-        selected_text = answers['pr']
-        for choice_text, pr_number in choices:
-            if choice_text == selected_text:
-                return pr_number
-                
-    except KeyboardInterrupt:
-        print_error("Selection cancelled")
-        sys.exit(1)
+
+    return interactive_select(choices, "Select a pull request", 'pr')
 
 def select_commit_interactive():
     """Show recent commits and let user select one"""
-    import inquirer
-
-    # Get recent commits with nice formatting
     commit_log = run_command(['git', 'log', '--oneline', '--decorate', '--color=never', '-20'])
     if not commit_log:
-        print_error("No commits found in repository")
-        sys.exit(1)
-    
-    # Parse commits
+        exit_with_error("No commits found in repository")
+
     commit_lines = commit_log.strip().split('\n')
     commits = []
-    
+
     for line in commit_lines:
         parts = line.split(' ', 1)
         if len(parts) >= 2:
             sha = parts[0]
             message = parts[1] if len(parts) > 1 else "No message"
             commits.append((sha, message))
-    
+
     if not commits:
-        print_error("No commits found")
-        sys.exit(1)
-    
-    # Create choices for the dropdown menu
-    choices = []
-    for sha, message in commits:
-        choice_text = f"{sha}: {message}"
-        choices.append((choice_text, sha))
-    
-    # Show native CLI dropdown
-    try:
-        questions = [
-            inquirer.List('commit',
-                         message="Select a commit",
-                         choices=[choice[0] for choice in choices],
-                         carousel=True)
-        ]
-        
-        answers = inquirer.prompt(questions)
-        if not answers:
-            print_error("Selection cancelled")
-            sys.exit(1)
-            
-        # Find the commit SHA for the selected choice
-        selected_text = answers['commit']
-        for choice_text, sha in choices:
-            if choice_text == selected_text:
-                return sha
-                
-    except KeyboardInterrupt:
-        print_error("Selection cancelled")
-        sys.exit(1)
+        exit_with_error("No commits found")
+
+    choices = [(f"{sha}: {message}", sha) for sha, message in commits]
+    return interactive_select(choices, "Select a commit", 'commit')
 
 def select_branch_interactive(message="Select a branch", include_current=True):
     """Show available branches and let user select one"""
-    import inquirer
-
-    # Get all branches (local and remote)
     local_branches = run_command(['git', 'branch', '--format=%(refname:short)'])
     remote_branches = run_command(['git', 'branch', '-r', '--format=%(refname:short)'])
-    
+
     if not local_branches and not remote_branches:
-        print_error("No branches found in repository")
-        sys.exit(1)
-    
+        exit_with_error("No branches found in repository")
+
     current_branch = run_command(['git', 'branch', '--show-current'])
-    
     branches = []
-    
+
     # Add local branches
     if local_branches:
         for branch in local_branches.strip().split('\n'):
@@ -182,24 +179,21 @@ def select_branch_interactive(message="Select a branch", include_current=True):
             if branch and (include_current or branch != current_branch):
                 is_current = branch == current_branch
                 branches.append((branch, 'local', is_current))
-    
+
     # Add remote branches (excluding HEAD and already seen local branches)
     if remote_branches:
         local_branch_names = [b[0] for b in branches]
         for branch in remote_branches.strip().split('\n'):
             branch = branch.strip()
             if branch and not branch.endswith('/HEAD'):
-                # Strip origin/ prefix for display but keep for git commands
-                display_name = branch
                 if '/' in branch:
                     short_name = branch.split('/', 1)[1]
                     if short_name not in local_branch_names:
                         branches.append((branch, 'remote', False))
-    
+
     if not branches:
-        print_error("No selectable branches found")
-        sys.exit(1)
-    
+        exit_with_error("No selectable branches found")
+
     # Create choices for the dropdown menu
     choices = []
     for branch, branch_type, is_current in branches:
@@ -210,89 +204,65 @@ def select_branch_interactive(message="Select a branch", include_current=True):
         else:
             choice_text = branch
         choices.append((choice_text, branch))
-    
-    # Show native CLI dropdown
-    try:
-        questions = [
-            inquirer.List('branch',
-                         message=message,
-                         choices=[choice[0] for choice in choices],
-                         carousel=True)
-        ]
-        
-        answers = inquirer.prompt(questions)
-        if not answers:
-            print_error("Selection cancelled")
-            sys.exit(1)
-            
-        # Find the branch name for the selected choice
-        selected_text = answers['branch']
-        for choice_text, branch in choices:
-            if choice_text == selected_text:
-                return branch
-                
-    except KeyboardInterrupt:
-        print_error("Selection cancelled")
-        sys.exit(1)
 
-def explain_pr(pr_spec=None, force_select=False):
-    """Handle pull request explanation"""
-    
-    # Check if gh is available
+    return interactive_select(choices, message, 'branch')
+
+def explain_pr(pr_spec=None, force_select=False, repo=None):
+    """Handle pull request explanation. Returns (base_prompt, diff_content)."""
+    from .prompts import EXPLAIN_PR_BP
+
     if not shutil.which('gh'):
-        print_error("GitHub CLI (gh) not available - PR explanation requires gh CLI")
-        sys.exit(1)
-    
+        exit_with_error("GitHub CLI (gh) not available - PR explanation requires gh CLI")
+
+    def get_pr_diff(pr_num=None):
+        """Get PR diff, optionally for a specific PR number and/or repo."""
+        cmd = ['gh', 'pr', 'diff']
+        if pr_num:
+            cmd.append(str(pr_num))
+        if repo:
+            cmd.extend(['--repo', repo])
+        return run_command(cmd)
+
     if force_select:
-        # Show interactive selection
-        pr_number = select_pr_interactive()
-        diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+        pr_number = select_pr_interactive(repo=repo)
+        diff_content = get_pr_diff(pr_number)
     elif pr_spec and pr_spec != True:
-        # Specific PR number provided
         try:
             pr_number = int(pr_spec)
-            diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+            diff_content = get_pr_diff(pr_number)
             if not diff_content:
-                print_error(f"Could not get diff for PR #{pr_number}. Make sure the PR exists.")
-                sys.exit(1)
+                exit_with_error(f"Could not get diff for PR #{pr_number}. Make sure the PR exists.")
         except ValueError:
-            print_error(f"Invalid PR number: '{pr_spec}'. Please provide a valid number.")
-            sys.exit(1)
+            exit_with_error(f"Invalid PR number: '{pr_spec}'. Please provide a valid number.")
     else:
-        # Try current PR, fallback to selection if not in PR branch
-        current_pr_check = run_command(['gh', 'pr', 'view'])
-        
-        if current_pr_check is None or current_pr_check == "":
-            # Not in a PR branch, show interactive selection
-            pr_number = select_pr_interactive()
-            diff_content = run_command(['gh', 'pr', 'diff', str(pr_number)])
+        if repo:
+            # Remote repo specified but no PR number - must select interactively
+            pr_number = select_pr_interactive(repo=repo)
+            diff_content = get_pr_diff(pr_number)
         else:
-            # In a PR branch, use current PR
-            diff_content = run_command(['gh', 'pr', 'diff'])
-    
-    if not diff_content or diff_content == "":
-        print_error("Could not get PR diff or PR has no changes")
-        sys.exit(1)
+            # Try current PR, fallback to selection if not in PR branch
+            current_pr_check = run_command(['gh', 'pr', 'view'])
+            if current_pr_check is None or current_pr_check == "":
+                pr_number = select_pr_interactive()
+                diff_content = get_pr_diff(pr_number)
+            else:
+                diff_content = get_pr_diff()
 
-    from .prompts import get_prompt_for_verbosity, EXPLAIN_PR_BP
-    config = load_config()
-    verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(EXPLAIN_PR_BP(pr_spec), verbosity)
-    
-    return prompt, diff_content
+    if not diff_content or diff_content == "":
+        exit_with_error("Could not get PR diff or PR has no changes")
+
+    return EXPLAIN_PR_BP(pr_spec), diff_content
 
 def explain_commit(ref='HEAD', force_select=False):
-    """Handle commit explanation"""
+    """Handle commit explanation. Returns (base_prompt, diff_content)."""
+    from .prompts import EXPLAIN_COMMIT_BP
+    from .styles import print_info
 
-    # If no ref specified or force select, show interactive selection
     if ref == 'HEAD' and force_select:
         ref = select_commit_interactive()
     elif ref != 'HEAD':
-        # Check if the provided commit exists
-        if run_command(['git', 'cat-file', '-e', ref]) is None:
+        if not is_valid_git_ref(ref):
             print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
-            # Offer interactive selection as fallback
-            from .styles import print_info
             print_info("Would you like to select from recent commits instead?")
             try:
                 response = input("Select from recent commits? (y/N): ").strip().lower()
@@ -303,137 +273,99 @@ def explain_commit(ref='HEAD', force_select=False):
             except (KeyboardInterrupt, EOFError):
                 sys.exit(1)
 
-    from .prompts import get_prompt_for_verbosity, EXPLAIN_COMMIT_BP
-    config = load_config()
-    verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(EXPLAIN_COMMIT_BP(ref), verbosity)
-    
     diff_content = run_command(['git', 'show', ref])
     if not diff_content:
-        print_error("Could not get commit diff")
-        sys.exit(1)
-    
-    return prompt, diff_content
+        exit_with_error("Could not get commit diff")
+
+    return EXPLAIN_COMMIT_BP(ref), diff_content
 
 def explain_diff(ref):
-    """Handle diff between current repo state and a commit"""
-    if run_command(['git', 'cat-file', '-e', ref]) is None:
-        print_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
-        sys.exit(1)
+    """Handle diff between current repo state and a commit. Returns (base_prompt, diff_content)."""
+    from .prompts import EXPLAIN_DIFF_BP
 
-    # Apply verbosity setting
-    from .prompts import get_prompt_for_verbosity, EXPLAIN_DIFF_BP
-    config = load_config()
-    verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(EXPLAIN_DIFF_BP(ref), verbosity)
-    
+    if not is_valid_git_ref(ref):
+        exit_with_error(f"Could not find commit '{ref}'. Please provide a valid commit SHA, tag, or branch.")
+
     diff_content = run_command(['git', 'diff', ref])
     if not diff_content:
-        print_error(f"No differences found between current state and commit '{ref}'")
-        sys.exit(1)
-    
-    return prompt, diff_content
+        exit_with_error(f"No differences found between current state and commit '{ref}'")
+
+    return EXPLAIN_DIFF_BP(ref), diff_content
 
 def explain_branch_diff(branch_spec, force_select=False, file_patterns=None):
-    """Handle diff between branches"""
-    
+    """Handle diff between branches. Returns (base_prompt, diff_content)."""
+    from .prompts import EXPLAIN_BRANCH_BP, EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP, EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP
+
     # Parse branch specification
     if '..' in branch_spec:
-        # Format: branch1..branch2
         branches = branch_spec.split('..', 1)
         if len(branches) != 2 or not branches[0] or not branches[1]:
-            print_error("Invalid branch range format. Use: branch1..branch2")
-            sys.exit(1)
+            exit_with_error("Invalid branch range format. Use: branch1..branch2")
         from_branch, to_branch = branches[0].strip(), branches[1].strip()
         comparison_type = "range"
     elif force_select:
-        # Interactive selection of two branches
         from_branch = select_branch_interactive("Select first branch (FROM)", include_current=True)
         to_branch = select_branch_interactive("Select second branch (TO)", include_current=True)
         comparison_type = "range"
     elif branch_spec == "HEAD" or not branch_spec:
-        # Default to comparing current branch with main/master
         current_branch = run_command(['git', 'branch', '--show-current'])
         if not current_branch:
-            print_error("Not on any branch")
-            sys.exit(1)
-        
+            exit_with_error("Not on any branch")
+
         # Try to find main branch (main, master, develop)
-        main_candidates = ['main', 'master', 'develop']
         main_branch = None
-        for candidate in main_candidates:
-            if run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{candidate}']) is not None:
+        for candidate in ['main', 'master', 'develop']:
+            if is_branch(candidate):
                 main_branch = candidate
                 break
-        
+
         if not main_branch:
-            # If no main branch found, show interactive selection
             main_branch = select_branch_interactive("Select base branch to compare against", include_current=False)
-        
+
         from_branch = main_branch
         to_branch = current_branch
         comparison_type = "current_vs_main"
     else:
-        # Single branch vs current working state
         from_branch = branch_spec
-        to_branch = None  # Working directory
+        to_branch = None
         comparison_type = "branch_vs_working"
-    
+
     # Validate branches exist
     if comparison_type != "branch_vs_working":
         for branch in [from_branch, to_branch]:
-            # Check if it's a local branch, remote branch, or commit
-            if (run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}']) is None and
-                run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{branch}']) is None and
-                run_command(['git', 'cat-file', '-e', branch]) is None):
-                print_error(f"Could not find branch or commit '{branch}'")
-                sys.exit(1)
+            if not is_valid_git_ref(branch):
+                exit_with_error(f"Could not find branch or commit '{branch}'")
     else:
-        # Just validate the from_branch for working directory comparison
-        if (run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{from_branch}']) is None and
-            run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{from_branch}']) is None and
-            run_command(['git', 'cat-file', '-e', from_branch]) is None):
-            print_error(f"Could not find branch or commit '{from_branch}'")
-            sys.exit(1)
-    
+        if not is_valid_git_ref(from_branch):
+            exit_with_error(f"Could not find branch or commit '{from_branch}'")
+
     # Build git diff command
     git_cmd = ['git', 'diff']
-    
-    # Add file patterns if specified
     if file_patterns:
         git_cmd.extend(['--'])
         git_cmd.extend(file_patterns)
-    
+
     # Determine diff range and create appropriate prompt
-    from .prompts import EXPLAIN_BRANCH_BP, EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP, EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP
     if comparison_type == "range":
         git_cmd.insert(2, f"{from_branch}..{to_branch}")
         base_prompt = EXPLAIN_BRANCH_BP(from_branch, to_branch)
     elif comparison_type == "current_vs_main":
         git_cmd.insert(2, f"{from_branch}..{to_branch}")
         base_prompt = EXPLAIN_BRANCH_CURRENT_VS_MAIN_BP(from_branch, to_branch)
-    else:  # branch_vs_working
+    else:
         git_cmd.insert(2, from_branch)
         base_prompt = EXPLAIN_BRANCH_CURRENT_VS_WORKING_BP(from_branch, to_branch)
-    
-    # Get the diff
+
     diff_content = run_command(git_cmd)
     if not diff_content:
         if comparison_type == "range":
-            print_error(f"No differences found between '{from_branch}' and '{to_branch}'")
+            exit_with_error(f"No differences found between '{from_branch}' and '{to_branch}'")
         elif comparison_type == "current_vs_main":
-            print_error(f"No differences found between '{from_branch}' and current branch '{to_branch}'")
+            exit_with_error(f"No differences found between '{from_branch}' and current branch '{to_branch}'")
         else:
-            print_error(f"No differences found between '{from_branch}' and working directory")
-        sys.exit(1)
-    
-    # Apply verbosity setting
-    from .prompts import get_prompt_for_verbosity
-    config = load_config()
-    verbosity = config.get('verbosity', 'balanced')
-    prompt = get_prompt_for_verbosity(base_prompt, verbosity)
-    
-    return prompt, diff_content
+            exit_with_error(f"No differences found between '{from_branch}' and working directory")
+
+    return base_prompt, diff_content
 
 def main():
     parser = argparse.ArgumentParser(
@@ -447,6 +379,7 @@ Examples:
   explain -P                    # Explain current PR
   explain -P 3                  # Explain specific PR number
   explain -P -s                 # Select PR interactively
+  explain -P 123 -R owner/repo  # Explain PR from another GitHub repo
   
   explain -D                    # Compare current branch vs main/master
   explain -D feature..main      # Compare two branches
@@ -480,6 +413,16 @@ Examples:
                        help='Force interactive selection menu')
     parser.add_argument('-f', '--files', metavar='PATTERN', nargs='+',
                        help='Filter diff to specific file patterns (e.g., "*.py" "src/*.js")')
+
+    # Override options (don't change saved config)
+    parser.add_argument('--style', metavar='STYLE',
+                       choices=['default', 'code_review', 'release_notes', 'nontechnical', 'technical'],
+                       help='Response style: default, code_review, release_notes, nontechnical, technical')
+    parser.add_argument('-v', '--verbosity', metavar='LEVEL',
+                       choices=['concise', 'balanced', 'hyperdetailed'],
+                       help='Verbosity level: concise, balanced, hyperdetailed')
+    parser.add_argument('-R', '--repo', metavar='OWNER/REPO',
+                       help='GitHub repository (e.g., "facebook/react"). Works with -P for remote PRs.')
     
     args = parser.parse_args()
     
@@ -493,46 +436,50 @@ Examples:
         parser.error('Must specify one of: -P/--pull-request, -C/--commit, -D/--diff, or --config')
     
     check_dependencies()
-    
+
+    # Warn if --repo is used with non-PR commands
+    if args.repo and args.pull_request is None:
+        print_warning("--repo only works with -P/--pull-request. Ignoring for this command.")
+
     # Determine which command to run
     if args.pull_request is not None:
-        prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select)
+        base_prompt, diff_content = explain_pr(pr_spec=args.pull_request, force_select=args.select, repo=args.repo)
     elif args.diff is not None:
-        # Use diff for both branch and commit comparisons
         branch_spec = args.diff
-        
-        # Handle backward compatibility: if branch_spec looks like a commit SHA (and not a branch range),
+
+        # Handle backward compatibility: if branch_spec looks like a commit SHA,
         # and it's not a valid branch name, fall back to old diff behavior
         if (branch_spec != 'HEAD' and '..' not in branch_spec and not args.select and
             len(branch_spec) >= 7 and all(c in '0123456789abcdef' for c in branch_spec[:7].lower())):
-            # Looks like a commit SHA, check if it's actually a branch first
-            if (run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch_spec}']) is None and
-                run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/remotes/{branch_spec}']) is None):
-                # Not a branch, use old diff behavior for backward compatibility
+            if not is_branch(branch_spec):
                 print_warning(f"'{branch_spec}' looks like a commit SHA. Use -C for commit explanations. Treating as diff vs working directory.")
-                prompt, diff_content = explain_diff(branch_spec)
+                base_prompt, diff_content = explain_diff(branch_spec)
             else:
-                prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
+                base_prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
         else:
-            prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
+            base_prompt, diff_content = explain_branch_diff(branch_spec, force_select=args.select, file_patterns=args.files)
     else:
-        prompt, diff_content = explain_commit(args.commit, force_select=args.select)
-    
-    # Send to AI provider
-    try:
-        from .styles import create_spinner, print_result, print_clipboard_success, ask_copy_raw
+        base_prompt, diff_content = explain_commit(args.commit, force_select=args.select)
 
+    # Build final prompt with CLI overrides (if any)
+    prompt = build_prompt(base_prompt, verbosity_override=args.verbosity, style_override=args.style)
+
+    # Send to AI provider
+    from .styles import create_spinner, print_result, print_clipboard_success, ask_copy_raw
+
+    try:
         ai_command, provider = get_ai_command(prompt)
 
+        diff_content = (diff_content or "") + "\n\n" + prompt
         with create_spinner("Getting explanation...", provider=provider):
             process = subprocess.run(
-                ai_command,
+                ai_command,  # Pass as list
                 input=diff_content,
                 check=True,
                 capture_output=True,
                 encoding='utf-8',
                 errors='replace',
-                shell=True
+                shell=True  # Don't use shell - let subprocess handle args properly
             )
 
         result = process.stdout.strip()
@@ -544,20 +491,16 @@ Examples:
         else:
             print_result(result, is_markdown=True)
             ask_copy_raw(result)
-            
+
     except subprocess.CalledProcessError:
-        print_error(f"Failed to run {provider} command")
-        sys.exit(1)
+        exit_with_error(f"Failed to run {provider} command")
     except KeyboardInterrupt:
-        print_error("Operation cancelled")
-        sys.exit(1)
+        exit_with_error("Operation cancelled")
 
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print_error("Operation cancelled")
-        sys.exit(1)
+        exit_with_error("Operation cancelled")
     except Exception as e:
-        print_error(f"Unexpected error: {e}")
-        sys.exit(1)
+        exit_with_error(f"Unexpected error: {e}")
