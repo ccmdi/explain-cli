@@ -58,14 +58,15 @@ def get_prompt_for_verbosity(base_prompt, verbosity):
     return modifier + base_prompt
 
 
-def build_prompt(base_prompt, verbosity_override=None, style_override=None):
+def build_prompt(base_prompt, verbosity_override=None, style_override=None, structure_override=None):
     """
-    Build a complete prompt with verbosity and response style settings.
+    Build a complete prompt with verbosity, response style, and structure settings.
 
     Args:
         base_prompt: The base prompt from one of the EXPLAIN_*_BP functions
         verbosity_override: Optional verbosity level to use instead of config
         style_override: Optional response style to use instead of config
+        structure_override: Optional response structure to use instead of config
 
     Returns:
         Complete prompt string with all modifiers applied
@@ -73,8 +74,14 @@ def build_prompt(base_prompt, verbosity_override=None, style_override=None):
     config = load_config()
     verbosity = verbosity_override or config.get('verbosity', 'balanced')
     response_style = style_override or config.get('response_style', 'default')
+    response_structure = structure_override if structure_override is not None else config.get('response_structure', '')
 
     verbosity_modifier = VERBOSITY_MODIFIERS.get(verbosity, VERBOSITY_MODIFIERS['balanced'])
     style_modifier = RESPONSE_STYLES.get(response_style, RESPONSE_STYLES['default'])
 
-    return f"{verbosity_modifier}{style_modifier}\n\n{base_prompt}"
+    prompt = f"{verbosity_modifier}{style_modifier}\n\n{base_prompt}"
+
+    if response_structure:
+        prompt += f"\n\nFORMAT YOUR RESPONSE EXACTLY LIKE THIS:\n{response_structure}"
+
+    return prompt
